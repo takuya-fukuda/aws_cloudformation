@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ALB と EC2 で稼働するシンプルな Flask API 環境
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: API を配置する VPC の ID
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: ALB と EC2 を配置するサブネットの ID（複数指定）
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: EC2 で使用する AMI の ID
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 インスタンスタイプ
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 へ SSH 用のキーペア名
+
+Resources:
+  # ──────────────────────────────────────────────────────
+  # セキュリティグループ：ALB 用（80番へのパブリックアクセス許可）
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB HTTP 用 SG
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  # セキュリティグループ：EC2 用（ALB からの HTTP のみ許可）
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 HTTP 用 SG（ALB からのみ）
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+
+  # ──────────────────────────────────────────────────────
+  # Application Load Balancer
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${AWS::StackName}-alb"
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  # ターゲットグループ（EC2 インスタンスを登録）
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${AWS::StackName}-tg"
+      Protocol: HTTP
+      Port: 80
+      VpcId: !Ref VpcId
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: "200"
+
+  # リスナー（ALB の 80 → ターゲットグループへフォワード）
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # ──────────────────────────────────────────────────────
+  # EC2 インスタンス（Flask API ホスティング用）
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          SubnetId: !Select [0, !Ref SubnetIds]
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ec2"
+
+  # EC2 インスタンスをターゲットグループに登録
+  InstanceTarget:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
+    Properties:
+      TargetGroupArn: !Ref TargetGroup
+      TargetId: !Ref EC2Instance
+      Port: 80
+
+Outputs:
+  LoadBalancerDNS:
+    Description: Application Load Balancer の DNS 名
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
