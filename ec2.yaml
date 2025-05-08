@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: デフォルトVPCとデフォルトサブネットに EC2 を作成。AMI・インスタンスタイプ・ディスクサイズはパラメータ化。
+
+Parameters:
+  # AMI ID
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: EC2 に利用する AMI の ID (例: ami-0abcdef1234567890)
+
+  # AWSのクイックスタートで用意されているものを使用する場合
+  Ubuntu22AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id
+    Description: Ubuntu 22.04 LTS の最新 AMI ID（SSM パブリックパラメータ）  
+
+  # インスタンスタイプ
+  InstanceType:
+    Type: String
+    Default: t3.micro
+    Description: EC2 のインスタンスタイプ
+    AllowedValues:
+      - t3.nano
+      - t3.micro
+      - t3.small
+      - t3.medium
+  # ルートボリュームのサイズ (GiB)
+  RootVolumeSize:
+    Type: Number
+    Default: 8
+    Description: ルートボリューム (gp3) のサイズ (GiB)
+    MinValue: 1
+    MaxValue: 1024
+
+Resources:
+  MyEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      # パラメータから参照
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      # SubnetId を指定しない → デフォルト VPC／デフォルトサブネットに配置される
+      # BlockDeviceMappings でルートディスクをカスタマイズ
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref RootVolumeSize
+            VolumeType: gp3
+            DeleteOnTermination: true
+      # 任意でタグ付け
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-Instance'
+
+Outputs:
+  InstanceId:
+    Description: 作成した EC2 インスタンスの ID
+    Value: !Ref MyEC2Instance
+  PublicIp:
+    Description: パブリック IP（デフォルトサブネットがパブリックの場合）
+    Value: !GetAtt MyEC2Instance.PublicIp
+

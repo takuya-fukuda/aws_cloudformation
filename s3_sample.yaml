@@ -1,0 +1,22 @@
+Resources:
+  ImageSaveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: image-save-bucket
+
+  ImageSaveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ImageSaveBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowSpecificIP
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${ImageSaveBucket}/*
+            Condition:
+              IpAddress:
+                aws:SourceIp:
+                  - "11.11.11.246/32" #グローバルIPを記載
