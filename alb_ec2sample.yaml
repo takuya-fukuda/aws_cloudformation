@@ -4,13 +4,39 @@ Description: ALB と EC2 で稼働するシンプルな Flask API 環境
 Parameters:
   VpcId:
     Type: AWS::EC2::VPC::Id
+    Default: "vpc-0abc1234def567890" # ← ここに実際の VPC ID
     Description: API を配置する VPC の ID
+
   SubnetIds:
     Type: List<AWS::EC2::Subnet::Id>
-    Description: ALB と EC2 を配置するサブネットの ID（複数指定）
+    Default: "subnet-0123456789abcdef0,subnet-0fedcba9876543210" # ← ここに実際のパブリックサブネット ID を複数
+    Description: ALB と EC2 を配置するサブネットの ID
+
   AmiId:
     Type: AWS::EC2::Image::Id
+    Default: "ami-0abcd1234efgh5678" # ← ここに実際の AMI ID
     Description: EC2 で使用する AMI の ID
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: "my-ssh-key" # ← ここに実際のキーペア名
+    Description: EC2 へ SSH 用のキーペア名
+
+  CertificateArn:
+    Type: String
+    Default: "arn:aws:acm:ap-northeast-1:123456789012:certificate/abcdefg-hijk-lmnop-qrst-uvwxyz012345" # ← 実際の ARN
+    Description: ACM 証明書の ARN
+
+  AlbName:
+    Type: String
+    Default: "my-flask-api-alb"
+    Description: 作成する ALB の名前
+
+  Ec2Name:
+    Type: String
+    Default: "my-flask-api-server"
+    Description: EC2 の Name タグ
+
   InstanceType:
     Type: String
     Default: t3.micro
@@ -19,42 +45,49 @@ Parameters:
       - t3.small
       - t3.medium
     Description: EC2 インスタンスタイプ
-  KeyName:
-    Type: AWS::EC2::KeyPair::KeyName
-    Description: EC2 へ SSH 用のキーペア名
 
 Resources:
   # ──────────────────────────────────────────────────────
-  # セキュリティグループ：ALB 用（80番へのパブリックアクセス許可）
+  # セキュリティグループ：ALB 用（80番・443番へのパブリックアクセス許可）
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: ALB HTTP 用 SG
+      GroupDescription: ALB HTTP/HTTPS SG
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          CidrIp: 0.0.0.0/0 # 必要に応じて制限してください
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0 # 必要に応じて制限してください
 
-  # セキュリティグループ：EC2 用（ALB からの HTTP のみ許可）
+  # セキュリティグループ：EC2 用（ALB からの HTTP と、管理用の SSH のみ許可）
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: EC2 HTTP 用 SG（ALB からのみ）
+      GroupDescription: EC2 SG
       VpcId: !Ref VpcId
       SecurityGroupIngress:
+        # ALB からの HTTP
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           SourceSecurityGroupId: !Ref AlbSecurityGroup
+        # SSH（管理用）
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0 # 必要に応じて制限してください
 
   # ──────────────────────────────────────────────────────
   # Application Load Balancer
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub "${AWS::StackName}-alb"
+      Name: !Ref AlbName
       Scheme: internet-facing
       Type: application
       Subnets: !Ref SubnetIds
@@ -64,6 +97,8 @@ Resources:
   # ターゲットグループ（EC2 インスタンスを登録）
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn:
+      - EC2Instance # ← ここで EC2Instance の作成完了を待つ
     Properties:
       Name: !Sub "${AWS::StackName}-tg"
       Protocol: HTTP
@@ -74,17 +109,36 @@ Resources:
       HealthCheckPath: /
       Matcher:
         HttpCode: "200"
+      Targets:
+        - Id: !Ref EC2Instance
+          Port: 80
 
-  # リスナー（ALB の 80 → ターゲットグループへフォワード）
-  Listener:
+  # リスナー：HTTPS（443）→ ターゲットグループへフォワード
+  HttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTPS
+      Port: 443
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # （オプション）HTTP→HTTPS リダイレクト用リスナー
+  HttpListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Protocol: HTTP
       Port: 80
       DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref TargetGroup
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            StatusCode: HTTP_301
 
   # ──────────────────────────────────────────────────────
   # EC2 インスタンス（Flask API ホスティング用）
@@ -102,15 +156,7 @@ Resources:
             - !Ref InstanceSecurityGroup
       Tags:
         - Key: Name
-          Value: !Sub "${AWS::StackName}-ec2"
-
-  # EC2 インスタンスをターゲットグループに登録
-  InstanceTarget:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroupAttachment
-    Properties:
-      TargetGroupArn: !Ref TargetGroup
-      TargetId: !Ref EC2Instance
-      Port: 80
+          Value: !Ref Ec2Name
 
 Outputs:
   LoadBalancerDNS:

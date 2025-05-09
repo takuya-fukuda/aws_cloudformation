@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: デフォルトVPCとデフォルトサブネットに EC2 を作成。AMI・インスタンスタイプ・ディスクサイズはパラメータ化。
 
 Parameters:
-  # AMI ID
+  # AMI ID クイックスタートのAMIもIDがあるらしい
   AmiId:
     Type: AWS::EC2::Image::Id
     Description: EC2 に利用する AMI の ID (例: ami-0abcdef1234567890)
