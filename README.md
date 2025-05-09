@@ -1,3 +1,12 @@
+## 概要
+
+MLOps の Cloudfromation の実現に向けて
+
+## システム構成図
+
+下記は MLOps の一部
+![システム構成図](./system_image.jpg)
+
 ## memo
 
 alb_ec2sample.yaml でスタックは成功するが、ヘルスチェックに引っかかる  
