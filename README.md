@@ -5,10 +5,11 @@ MLOps の Cloudfromation の実現に向けて
 ## システム構成図
 
 下記は MLOps の一部
-![システム構成図](./system_image.jpg)
+![システム構成図](./assets/system_image.jpg)
 
 ## memo
 
+alb_ec2sample.yaml は ACM に外部証明書か、AWS で発行した無料の証明書を発行している前提。
 alb_ec2sample.yaml でスタックは成功するが、ヘルスチェックに引っかかる  
 Nginx でヘルスチェックルートを作成する必要がありそう。  
 後は Docker で Flask の API を持ってこれば行けそう。
