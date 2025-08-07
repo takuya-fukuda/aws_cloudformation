@@ -157,6 +157,36 @@ Resources:
       Tags:
         - Key: Name
           Value: !Ref Ec2Name
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          apt update -y
+          apt install -y nginx docker.io
+          systemctl start docker
+          systemctl enable docker
+          cat <<'EOF' > /etc/nginx/sites-available/default
+          server {
+              listen 80;
+              server_name _;
+
+              client_max_body_size 10M;
+
+              location /healthchk {
+                  return 200 'healthy';
+                  add_header Content-Type text/plain;
+              }
+
+              location / {
+                  proxy_pass http://127.0.0.1:5000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+          EOF
+
+          # nginx 再起動
+          systemctl restart nginx
 
 Outputs:
   LoadBalancerDNS:
