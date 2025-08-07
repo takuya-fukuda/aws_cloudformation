@@ -48,43 +48,36 @@ Nginx でヘルスチェックルートを作成する必要がありそう。
           SubnetId: !Select [0, !Ref SubnetIds]
           GroupSet:
             - !Ref InstanceSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Ref Ec2Name
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          # システムアップデート
-          apt-get update -y
-
-          # Nginxインストール
-          apt-get install -y nginx
-
-          # ヘルスチェック用設定
-          cat > /etc/nginx/sites-available/health << 'EOF'
+          apt install -y nginx
+          cat <<'EOF' > /etc/nginx/sites-available/default
           server {
               listen 80;
               server_name _;
 
-              # ヘルスチェックエンドポイント
+              client_max_body_size 5M;
+
               location /health {
-                  access_log off;
-                  return 200 "healthy\n";
+                  return 200 'healthy';
                   add_header Content-Type text/plain;
               }
 
-              # デフォルトページ
               location / {
-                  root /var/www/html;
-                  index index.html;
+                  proxy_pass http://127.0.0.1:5000;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
               }
           }
           EOF
 
-          # デフォルトサイトを無効化して新しい設定を有効化
-          rm -f /etc/nginx/sites-enabled/default
-          ln -s /etc/nginx/sites-available/health /etc/nginx/sites-enabled/
-
-          # Nginxを起動・自動起動設定
-          systemctl start nginx
-          systemctl enable nginx
+          # nginx 再起動
+          systemctl restart nginx
       Tags:
         - Key: Name
           Value: !Ref Ec2Name
